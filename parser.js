@@ -185,8 +185,9 @@
     var ym = fullText.match(/\b(20\d{2})\b/);
     var defaultYear = ym ? ym[1] : null;
 
-    if (bank === 'amex' || bank === 'generic' || !cfg) {
-      return { bank: bank, accounts: [], warnings: ['Automatic extraction is not supported for this document type (' + bank + '). Only bank cash statements (HSBC, Fusion, PAOB, Standard Chartered, Payoneer, Wise) are parsed.'] };
+    if (bank === 'amex') return parseAmex(lines, fullText);
+    if (bank === 'generic' || !cfg) {
+      return { bank: bank, accounts: [], warnings: ['Automatic extraction is not supported for this document type. Only bank/card statements (HSBC, Fusion, PAOB, Standard Chartered, Payoneer, Wise, American Express) are parsed.'] };
     }
 
     var descStart = cfg.descStart || 0;
@@ -362,6 +363,120 @@
     });
 
     return { bank: bank, accounts: accounts, warnings: warnings };
+  }
+
+  // ---- American Express (credit-card bill) -------------------------------
+  // Different shape from a bank ledger: two-line entries (merchant above, the
+  // date+amount below), foreign-currency sub-lines, char-split merchant text,
+  // no per-line running balance. Charges = money out (Cr), payments = money in (Dr).
+  var MONNAME = /^(Jan(uary)?|Feb(ruary)?|Mar(ch)?|Apr(il)?|May|Jun(e)?|Jul(y)?|Aug(ust)?|Sep(t|tember)?|Oct(ober)?|Nov(ember)?|Dec(ember)?)$/;
+  function joinTokens(toks) {
+    var out = '';
+    for (var i = 0; i < toks.length; i++) {
+      var t = toks[i];
+      if (i > 0) {
+        var prev = toks[i - 1];
+        var gap = t.x - (prev.x + (prev.w || 0));
+        out += (gap < 1.6 ? '' : ' ');
+      }
+      out += t.s;
+    }
+    return out.replace(/\s+/g, ' ').trim();
+  }
+  function parseAmex(lines, fullText) {
+    var warnings = [];
+    // statement date -> year/month for resolving "May 27" style dates
+    var sd = fullText.match(/\b([A-Z][a-z]{2,8})\s+(\d{1,2}),\s*(\d{4})\b/);
+    var stmtYear = sd ? +sd[3] : (fullText.match(/\b(20\d{2})\b/) ? +RegExp.$1 : 2026);
+    var stmtMonth = sd ? MONTHS[sd[1].slice(0, 3).toLowerCase()] : 12;
+    var card = (fullText.match(/x{2,}-x{2,}-\d{3,}/i) || fullText.match(/\b\d{4}-\d{6}-\d{5}\b/) || ['card'])[0];
+
+    // reconciliation targets from the summary box
+    var prevBal = null, newBal = null;
+    var sumM = fullText.match(/Previous Balance[\s\S]{0,120}?New Balance[\s\S]{0,40}?([\d,]+\.\d{2})[\s\S]{0,10}?([\d,]+\.\d{2})?/);
+    var pm = fullText.match(/([\d,]+\.\d{2})\s*[-+]?\s*([\d,]+\.\d{2})?\s*[-+]?\s*([\d,]+\.\d{2})?\s*=\s*([\d,]+\.\d{2})/);
+    if (pm) { prevBal = num(pm[1]); newBal = num(pm[4]); }
+
+    var txns = [];
+    var descBuf = [];
+    var last = null;
+
+    lines.forEach(function (line) {
+      var toks = line.tokens.filter(function (t) { return t.s.trim(); });
+      if (!toks.length) return;
+      var text = line.text;
+
+      // a lone "CR" (or trailing CR) flips the previous entry into a credit
+      if (/^CR$/i.test(text) || /\bCR$/.test(text)) {
+        if (last) { last.credit = true; }
+        if (/^CR$/i.test(text)) return;
+      }
+      // ignore FX detail + boilerplate
+      if (/^(UNITED STATES|EURO|POUND|JAPANESE|CHINESE|HONG KONG DOLLAR|All-inclusive exchange rate|.*exchange rate#)/i.test(text)) return;
+      if (/(Statement of Account|Cardmember|Account Number|American Express|Page \d|Amount Due|Payment Due|DETAILS\b|FOREIGN SPEND|New Transactions|Card Number|Previous Balance|Important Information|www\.|Minimum Payment)/i.test(text)) {
+        return; // header/footer noise (does not carry a real dated charge)
+      }
+
+      // is this a date line?  "May 27" (one token) or "May" "27" (two tokens), near the left
+      var dm = null;
+      if (toks[0].x < 60) {
+        var mtwo = toks[0].s.trim() + (toks[1] ? ' ' + toks[1].s.trim() : '');
+        var one = toks[0].s.trim().match(/^([A-Z][a-z]{2,8})\.?\s+(\d{1,2})$/);
+        var two = toks.length >= 2 && MONNAME.test(toks[0].s.trim()) && /^\d{1,2}$/.test(toks[1].s.trim());
+        if (one) dm = { mon: one[1], day: +one[2] };
+        else if (two) dm = { mon: toks[0].s.trim(), day: +toks[1].s.trim() };
+      }
+      var isDate = !!dm;
+      if (!isDate) {
+        // "Total of new transactions" etc. -> reset (subtotal, not a charge)
+        if (/^Total of (new|New)/i.test(text)) { descBuf = []; return; }
+        // merchant / description line — the charge's merchant is the line
+        // immediately above its date, so keep only the most recent one
+        var dtoks = toks.filter(function (t) { return t.x >= 80 && t.x < 340; });
+        if (dtoks.length) descBuf = [joinTokens(dtoks)];
+        return;
+      }
+
+      // --- date line: month day [foreign] [HK$] ---
+      var mm = MONTHS[dm.mon.slice(0, 3).toLowerCase()];
+      var day = dm.day;
+      var yr = (mm > stmtMonth) ? stmtYear - 1 : stmtYear;
+      var date = yr + '-' + pad(mm) + '-' + pad(day);
+
+      var nums = toks.filter(function (t) { return t.x >= 350 && looksNumeric(t.s); })
+                     .map(function (t) { return { x: t.x, v: num(t.s) }; })
+                     .filter(function (o) { return o.v != null; })
+                     .sort(function (a, b) { return a.x - b.x; });
+      if (!nums.length) { return; }               // a dated line with no money — skip
+      var hk = nums[nums.length - 1].v;            // right-most = amount in HK$
+      var foreign = nums.length > 1 ? nums[0].v : null;
+
+      var label = descBuf.join(' ').replace(/\s+/g, ' ').trim();
+      if (foreign != null) label += ' [FX ' + foreign + ']';
+      var isCredit = /PAYMENT RECEIVED|THANK YOU|CREDIT|REBATE|REFUND|RETURN/i.test(label);
+
+      var t = { date: date, label: label || '(no description)', amount: hk, credit: isCredit,
+                moneyIn: null, moneyOut: null, balancePrinted: null };
+      txns.push(t); last = t; descBuf = [];
+    });
+
+    if (!txns.length) return { bank: 'amex', accounts: [], warnings: ['No card transactions found in this American Express statement.'] };
+
+    // opening = previous balance; running outstanding = prev + charges - credits
+    var open = prevBal != null ? prevBal : 0;
+    var run = open;
+    txns.forEach(function (t) {
+      if (t.credit) { t.moneyIn = t.amount; run = round2(run - t.amount); }
+      else { t.moneyOut = t.amount; run = round2(run + t.amount); }
+      t.balance = run;
+    });
+    if (newBal != null && Math.abs(run - newBal) > 0.02) {
+      txns[txns.length - 1].reconcileFlag = true;
+      warnings.push('AmEx: computed closing balance (' + run.toFixed(2) + ') does not match the statement’s New Balance (' + newBal.toFixed(2) + ') — please review. Card statements often include fees/adjustments shown outside the transaction list.');
+    }
+    warnings.push('This is a credit-card statement: charges are exported as Cr (money out) and payments as Dr (money in); the Balance column is the outstanding card balance, not a cash balance.');
+
+    return { bank: 'amex', accounts: [{ account: 'AmEx ' + card, currency: 'HKD', openingBalance: open, computedOpening: round2(open), transactions: txns }], warnings: warnings };
   }
 
   function deriveOpening(firstTxn) {

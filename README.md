@@ -24,9 +24,11 @@ Netlify, S3, etc. See "Publishing" below.
 | **Standard Chartered** | one sheet per account & currency |
 | **Payoneer** | signed-amount + running-balance layout |
 | **Wise** | transfer + fee lines, reverse-chronological |
+| **American Express** | credit-card bill: charges → Cr, payments → Dr, Balance = outstanding card balance |
 
-AmEx card statements are recognised but **not** converted (they're a credit-card bill, not a cash
-ledger).
+> **Note on AmEx:** a card statement is not a cash ledger. Charges are exported as **Cr** (money
+> out) and payments as **Dr** (money in); the Balance column is the **outstanding card balance**
+> (opening = Previous Balance), and the final row is reconciled against the statement's New Balance.
 
 ## What it does under the hood
 
