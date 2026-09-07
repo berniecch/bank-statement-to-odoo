@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bank Statement → Odoo Converter</title>
+<style>
+  :root{
+    --bg:#0f1720; --panel:#16212e; --panel2:#1d2b3a; --line:#2a3b4d;
+    --ink:#e8eef5; --muted:#93a4b7; --accent:#3ea6ff; --accent2:#1f8fff;
+    --ok:#37d67a; --warn:#ffb02e; --bad:#ff5c6c;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink)}
+  header{padding:22px 26px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#16212e,#111a24)}
+  h1{margin:0;font-size:20px;letter-spacing:.2px}
+  h1 span{color:var(--accent)}
+  .sub{color:var(--muted);font-size:13px;margin-top:4px}
+  main{max-width:1100px;margin:0 auto;padding:24px 20px 80px}
+  .drop{border:2px dashed var(--line);border-radius:14px;padding:38px 20px;text-align:center;background:var(--panel);transition:.15s;cursor:pointer}
+  .drop.drag{border-color:var(--accent);background:var(--panel2)}
+  .drop b{color:var(--accent)}
+  .drop small{color:var(--muted);display:block;margin-top:8px}
+  .banks{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:14px}
+  .chip{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:20px;padding:3px 10px}
+  .bar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:22px 0 8px}
+  .bar .grow{flex:1}
+  button{font:inherit;border:0;border-radius:9px;padding:10px 16px;background:var(--accent2);color:#fff;cursor:pointer;font-weight:600}
+  button.ghost{background:var(--panel2);color:var(--ink);border:1px solid var(--line)}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  .opt{display:flex;gap:14px;align-items:center;color:var(--muted);font-size:13px;flex-wrap:wrap}
+  .opt label{display:flex;gap:6px;align-items:center;cursor:pointer;color:var(--ink)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;margin-top:16px;overflow:hidden}
+  .chd{display:flex;gap:12px;align-items:center;padding:13px 16px;border-bottom:1px solid var(--line);background:var(--panel2)}
+  .chd .name{font-weight:600}
+  .chd .tag{font-size:11px;text-transform:uppercase;letter-spacing:.5px;padding:3px 9px;border-radius:6px;background:#0c3055;color:var(--accent)}
+  .chd .rm{margin-left:auto;background:transparent;color:var(--muted);border:1px solid var(--line);padding:5px 10px}
+  .acc{padding:6px 16px 14px}
+  .acch{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;padding:12px 0 6px;border-top:1px dashed var(--line)}
+  .acch:first-child{border-top:0}
+  .acch .an{font-weight:600}
+  .acch .meta{color:var(--muted);font-size:12.5px}
+  .acch .bal{margin-left:auto;font-variant-numeric:tabular-nums}
+  .ok{color:var(--ok)} .warn{color:var(--warn)} .bad{color:var(--bad)}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-numeric:tabular-nums}
+  th,td{padding:5px 8px;border-bottom:1px solid #223142;text-align:left;white-space:nowrap}
+  th{color:var(--muted);font-weight:600;position:sticky;top:0;background:var(--panel)}
+  td.n,th.n{text-align:right}
+  .tblwrap{max-height:280px;overflow:auto;border:1px solid var(--line);border-radius:8px;margin-top:4px}
+  tr.flag td{background:rgba(255,92,108,.09)}
+  .more{color:var(--muted);font-size:12px;padding:8px}
+  .msg{padding:10px 14px;border-radius:9px;margin-top:10px;font-size:13px}
+  .msg.warn{background:rgba(255,176,46,.12);border:1px solid rgba(255,176,46,.35);color:#ffd98a}
+  .msg.err{background:rgba(255,92,108,.12);border:1px solid rgba(255,92,108,.35);color:#ffb3bb}
+  .privacy{color:var(--muted);font-size:12px;margin-top:26px;text-align:center;line-height:1.7}
+  .spin{display:inline-block;width:14px;height:14px;border:2px solid #2a3b4d;border-top-color:var(--accent);border-radius:50%;animation:s .7s linear infinite;vertical-align:-2px}
+  @keyframes s{to{transform:rotate(360deg)}}
+  #status{color:var(--muted);font-size:13px}
+  input[type=file]{display:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>Bank Statement <span>→</span> Odoo Converter</h1>
+  <div class="sub">Drop bank-statement PDFs, get an Odoo-ready Excel export. Everything runs in your browser — no file ever leaves this device.</div>
+</header>
+<main>
+  <div class="drop" id="drop">
+    <div>Drag &amp; drop statement PDFs here, or <b>click to choose files</b></div>
+    <small>Multiple files at once are fine.</small>
+    <div class="banks">
+      <span class="chip">HSBC Business Direct</span>
+      <span class="chip">Fusion Bank</span>
+      <span class="chip">PAOB / Ping An</span>
+      <span class="chip">Standard Chartered</span>
+      <span class="chip">Payoneer</span>
+      <span class="chip">Wise</span>
+    </div>
+    <input type="file" id="file" accept="application/pdf,.pdf" multiple>
+  </div>
+
+  <div class="bar">
+    <div class="opt">
+      <span>Export as:</span>
+      <label><input type="radio" name="mode" value="combined" checked> One combined workbook</label>
+      <label><input type="radio" name="mode" value="zip"> One file per statement (.zip)</label>
+    </div>
+    <div class="grow"></div>
+    <span id="status"></span>
+    <button class="ghost" id="clear" disabled>Clear</button>
+    <button id="export" disabled>Download Odoo Excel</button>
+  </div>
+
+  <div id="results"></div>
+
+  <div class="privacy">
+    🔒 100% client-side. PDFs are parsed locally with pdf.js and exported with SheetJS in your browser.<br>
+    Nothing is uploaded to any server. Safe for confidential statements.<br>
+    Every row's running balance is re-computed and checked against the bank's printed balance — mismatches are flagged for review.
+  </div>
+</main>
+
+<!-- Libraries (only the code is fetched from CDN; your statement data stays local) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="parser.js"></script>
+<script>
+if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc =
+  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+var ODOO_HEADER = ["Number","Date (日期)","Label","Dr","Cr","Balance","Cumulative Amount"];
+var parsed = [];            // [{file, bank, accounts, warnings}]
+var el = function (id){ return document.getElementById(id); };
+var drop = el('drop'), fileInput = el('file');
+
+drop.addEventListener('click', function(){ fileInput.click(); });
+fileInput.addEventListener('change', function(e){ handleFiles(e.target.files); fileInput.value=''; });
+['dragenter','dragover'].forEach(function(ev){ drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.add('drag');}); });
+['dragleave','drop'].forEach(function(ev){ drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.remove('drag');}); });
+drop.addEventListener('drop', function(e){ handleFiles(e.dataTransfer.files); });
+el('clear').addEventListener('click', function(){ parsed=[]; render(); setStatus(''); });
+el('export').addEventListener('click', doExport);
+
+function setStatus(html){ el('status').innerHTML = html; }
+
+async function handleFiles(list){
+  var files = Array.prototype.slice.call(list).filter(function(f){ return /\.pdf$/i.test(f.name); });
+  if(!files.length) return;
+  for (var i=0;i<files.length;i++){
+    var f = files[i];
+    setStatus('<span class="spin"></span> Reading ' + escapeHtml(f.name) + ' …');
+    try {
+      var items = await extractItems(f);
+      var res = BankParser.extract(items);
+      parsed.push({ file:f.name, bank:res.bank, accounts:res.accounts, warnings:res.warnings });
+    } catch(err){
+      parsed.push({ file:f.name, bank:'error', accounts:[], warnings:['Could not read this PDF: ' + err.message] });
+    }
+    render();
+  }
+  setStatus('');
+}
+
+async function extractItems(file){
+  var buf = await file.arrayBuffer();
+  var doc = await pdfjsLib.getDocument({data:buf}).promise;
+  var out = [];
+  for (var p=1; p<=doc.numPages; p++){
+    var page = await doc.getPage(p);
+    var tc = await page.getTextContent();
+    tc.items.forEach(function(it){
+      if(!it.str) return;
+      out.push({ str: it.str, x: it.transform[4], y: it.transform[5], page: p, width: it.width });
+    });
+  }
+  return out;
+}
+
+function fmt(v){ return v==null ? '' : Number(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function escapeHtml(s){ return String(s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+function render(){
+  var root = el('results'); root.innerHTML='';
+  var totalTx = 0;
+  parsed.forEach(function(st, idx){
+    var card = document.createElement('div'); card.className='card';
+    var tagClass = st.bank==='error' ? 'bad' : '';
+    var head = document.createElement('div'); head.className='chd';
+    head.innerHTML = '<span class="tag">'+escapeHtml(st.bank)+'</span><span class="name">'+escapeHtml(st.file)+'</span>';
+    var rm = document.createElement('button'); rm.className='rm'; rm.textContent='Remove';
+    rm.onclick = function(){ parsed.splice(idx,1); render(); };
+    head.appendChild(rm); card.appendChild(head);
+
+    var body = document.createElement('div'); body.className='acc';
+    if(!st.accounts.length){
+      var m=document.createElement('div'); m.className='msg '+(st.bank==='error'?'err':'warn');
+      m.textContent = st.warnings[0] || 'No transactions found.'; body.appendChild(m);
+    }
+    st.accounts.forEach(function(a){
+      totalTx += a.transactions.length;
+      var flagged = a.transactions.filter(function(t){return t.reconcileFlag;}).length;
+      var last = a.transactions[a.transactions.length-1];
+      var h=document.createElement('div'); h.className='acch';
+      h.innerHTML = '<span class="an">'+escapeHtml(a.account)+'</span>'+
+        '<span class="meta">'+a.transactions.length+' transactions · opening '+fmt(a.computedOpening)+'</span>'+
+        '<span class="bal '+(flagged?'warn':'ok')+'">closing '+fmt(last?last.balance:a.computedOpening)+(flagged?' · ⚠ '+flagged+' to review':' · ✓ reconciles')+'</span>';
+      body.appendChild(h);
+
+      var wrap=document.createElement('div'); wrap.className='tblwrap';
+      var tbl=document.createElement('table');
+      tbl.innerHTML='<thead><tr><th class="n">#</th><th>Date</th><th>Label</th><th class="n">Dr (in)</th><th class="n">Cr (out)</th><th class="n">Balance</th></tr></thead>';
+      var tb=document.createElement('tbody');
+      var show = a.transactions.slice(0,40);
+      show.forEach(function(t,i){
+        var tr=document.createElement('tr'); if(t.reconcileFlag) tr.className='flag';
+        tr.innerHTML='<td class="n">'+(i+1)+'</td><td>'+escapeHtml(t.date)+'</td><td>'+escapeHtml(t.label)+
+          '</td><td class="n">'+fmt(t.moneyIn)+'</td><td class="n">'+fmt(t.moneyOut)+'</td><td class="n">'+fmt(t.balance)+'</td>';
+        tb.appendChild(tr);
+      });
+      tbl.appendChild(tb); wrap.appendChild(tbl); body.appendChild(wrap);
+      if(a.transactions.length>40){ var mo=document.createElement('div'); mo.className='more'; mo.textContent='… and '+(a.transactions.length-40)+' more rows (all included in the export)'; body.appendChild(mo); }
+    });
+    if(st.warnings && st.warnings.length && st.accounts.length){
+      st.warnings.forEach(function(w){ var m=document.createElement('div'); m.className='msg warn'; m.textContent='⚠ '+w; body.appendChild(m); });
+    }
+    card.appendChild(body); root.appendChild(card);
+  });
+  var any = parsed.some(function(s){return s.accounts.length;});
+  el('export').disabled = !any;
+  el('clear').disabled = !parsed.length;
+  if(parsed.length) setStatus(totalTx+' transactions across '+parsed.length+' statement(s)');
+}
+
+// ---- Excel export -------------------------------------------------------
+function toDate(iso){
+  var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(iso||'');
+  if(!m) return iso||'';
+  return new Date(Date.UTC(+m[1], +m[2]-1, +m[3]));
+}
+function accountSheet(a){
+  var rows=[ODOO_HEADER.slice()];
+  var n=1;
+  rows.push([n++, '', '承前轉結 B/F BALANCE', '', '', a.computedOpening, a.computedOpening]);
+  a.transactions.forEach(function(t){
+    rows.push([n++, toDate(t.date), t.label, t.moneyIn==null?'':t.moneyIn, t.moneyOut==null?'':t.moneyOut, t.balance, t.balance]);
+  });
+  var ws = XLSX.utils.aoa_to_sheet(rows, {cellDates:true});
+  ws['!cols']=[{wch:7},{wch:12},{wch:52},{wch:14},{wch:14},{wch:15},{wch:16}];
+  return ws;
+}
+function safeName(s, used){
+  var n=String(s).replace(/[\\\/\?\*\[\]:]/g,' ').replace(/\s+/g,' ').trim().slice(0,31) || 'Sheet';
+  var base=n, i=2;
+  while(used[n]){ var suf=' '+(i++); n=base.slice(0,31-suf.length)+suf; }
+  used[n]=1; return n;
+}
+function tagFor(file){
+  return file.replace(/\.pdf$/i,'').replace(/[^A-Za-z0-9]+/g,' ').trim().slice(0,14);
+}
+
+function doExport(){
+  var mode = document.querySelector('input[name=mode]:checked').value;
+  var sts = parsed.filter(function(s){return s.accounts.length;});
+  if(!sts.length) return;
+
+  if(mode==='combined'){
+    var wb=XLSX.utils.book_new(); var used={};
+    sts.forEach(function(st){
+      var tag = sts.length>1 ? tagFor(st.file)+' - ' : '';
+      st.accounts.forEach(function(a){
+        XLSX.utils.book_append_sheet(wb, accountSheet(a), safeName(tag+a.account, used));
+      });
+    });
+    XLSX.writeFile(wb, 'Bank statements (Odoo).xlsx', {cellDates:true});
+    setStatus('Downloaded combined workbook ✓');
+  } else {
+    var zip=new JSZip();
+    var usedFiles={};
+    sts.forEach(function(st){
+      var wb=XLSX.utils.book_new(); var used={};
+      st.accounts.forEach(function(a){ XLSX.utils.book_append_sheet(wb, accountSheet(a), safeName(a.account, used)); });
+      var data=XLSX.write(wb,{bookType:'xlsx',type:'array',cellDates:true});
+      var fn=(st.file.replace(/\.pdf$/i,'')||'statement')+' (Odoo).xlsx';
+      var base=fn,i=2; while(usedFiles[fn]){ fn=base.replace(/\.xlsx$/,'')+' '+(i++)+'.xlsx'; } usedFiles[fn]=1;
+      zip.file(fn, data);
+    });
+    zip.generateAsync({type:'blob'}).then(function(blob){
+      var url=URL.createObjectURL(blob), a=document.createElement('a');
+      a.href=url; a.download='Bank statements (Odoo).zip'; document.body.appendChild(a); a.click();
+      a.remove(); setTimeout(function(){URL.revokeObjectURL(url);},2000);
+      setStatus('Downloaded .zip of '+sts.length+' file(s) ✓');
+    });
+  }
+}
+</script>
+</body>
+</html>
