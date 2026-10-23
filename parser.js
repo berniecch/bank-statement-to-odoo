@@ -340,10 +340,13 @@
     // per-bank ordering (Payoneer lists newest-first)
     if (cfg.reverse) accounts.forEach(function (a) { a.transactions.reverse(); });
 
-    // keep only accounts that actually carry transactions
-    accounts = accounts.filter(function (a) { return a.transactions.length > 0; });
+    accounts = finalizeAccounts(accounts, warnings);
+    return { bank: bank, accounts: accounts, warnings: warnings };
+  }
 
-    // compute running balances + reconcile against printed balances
+  // shared: keep non-empty accounts, compute running balances, reconcile vs printed
+  function finalizeAccounts(accounts, warnings) {
+    accounts = accounts.filter(function (a) { return a.transactions.length > 0; });
     accounts.forEach(function (a) {
       var open = a.openingBalance;
       if (open == null && a.transactions.length && a.transactions[0].balancePrinted != null) {
@@ -361,8 +364,7 @@
       });
       if (flagged) warnings.push('Account "' + a.account + '": ' + flagged + ' row(s) where the computed running balance differs from the printed balance — please review.');
     });
-
-    return { bank: bank, accounts: accounts, warnings: warnings };
+    return accounts;
   }
 
   // ---- American Express (credit-card bill) -------------------------------
@@ -495,7 +497,129 @@
   }
   function round2(v) { return Math.round((v + Number.EPSILON) * 100) / 100; }
 
-  var api = { extract: extract, detectBank: detectBank, buildLines: buildLines, BANKS: BANKS, normDate: normDate };
+  // ---- CSV statements ----------------------------------------------------
+  // Some banks export a structured CSV instead of a PDF (e.g. Maybank2E / M2U
+  // biz). These have no x/y layout, so they get their own record-based path.
+  function parseCSVLine(line) {
+    var out = [], cur = '', q = false;
+    for (var i = 0; i < line.length; i++) {
+      var c = line[i];
+      if (q) {
+        if (c === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else q = false; }
+        else cur += c;
+      } else {
+        if (c === '"') q = true;
+        else if (c === ',') { out.push(cur); cur = ''; }
+        else cur += c;
+      }
+    }
+    out.push(cur);
+    return out.map(function (s) { return s.replace(/^﻿/, '').trim(); });
+  }
+
+  // DD/MM/YYYY -> YYYY-MM-DD (Maybank date style); pass through if already ISO
+  function normDMY(s) {
+    if (!s) return '';
+    s = s.trim();
+    var m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (m) return m[3] + '-' + pad(+m[2]) + '-' + pad(+m[1]);
+    return normDate(s, null);
+  }
+
+  function detectCsvBank(text) {
+    var t = text;
+    // Maybank structured export: H1/H2/D1 records + a Ledger Balance column
+    if (/(^|\n)\s*"?\s*D1\s*"?\s*,/i.test(t) && /Ledger Balance/i.test(t) &&
+        /Deposit/i.test(t) && /Withdrawal/i.test(t)) return 'maybank';
+    return 'generic';
+  }
+
+  function extractCsv(text) {
+    var bank = detectCsvBank(text);
+    if (bank === 'maybank') return parseMaybankCsv(text);
+    return { bank: 'generic', accounts: [], warnings: ['This CSV format is not recognised. Supported CSV: Maybank (Malaysia) account statement export.'] };
+  }
+
+  function parseMaybankCsv(text) {
+    var warnings = [];
+    var rows = text.split(/\r?\n/).filter(function (l) { return l.trim() !== ''; }).map(parseCSVLine);
+
+    var accName = null, currency = null, acctNo = null;
+    var idx = null;                 // column-name -> index (from the D1 header)
+    var txns = [];
+    var totalDep = null, totalWd = null;
+
+    function colIdx(header) {
+      var map = {};
+      header.forEach(function (h, i) { map[h.toLowerCase().trim()] = i; });
+      return map;
+    }
+    var get = function (r, key) { var i = idx[key]; return (i != null && i < r.length) ? r[i] : ''; };
+
+    rows.forEach(function (r) {
+      var type = (r[0] || '').toUpperCase().trim();
+      if (type === 'H2' && !accName) {
+        // H2, AccountNumber, Type, Currency, AccountName, DateFrom, DateTo
+        acctNo = (r[1] || '').trim();
+        currency = (r[3] || '').trim() || null;
+        accName = (r[4] || '').trim() || acctNo;
+      } else if (type === 'D1' && !idx) {
+        idx = colIdx(r);
+      } else if (type === 'D2' && idx) {
+        // real data row: needs a parseable value/txn date, else it's the legend stub
+        var rawDate = get(r, 'value date') || get(r, 'date');
+        var date = normDMY(rawDate);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+        var dep = num(get(r, 'deposit'));
+        var wd = num(get(r, 'withdrawal'));
+        var bal = num(get(r, 'ledger balance'));
+        var payee = (get(r, 'remarks') || '').trim();
+        var yourRef = (get(r, 'your reference') || '').trim();
+        var desc = (get(r, 'description') || '').trim();
+        var parts = [];
+        [payee, yourRef].forEach(function (p) { if (p && parts.indexOf(p) === -1) parts.push(p); });
+        var label = parts.join(' | ');
+        if (desc) label = label ? (label + ' [' + desc + ']') : desc;
+        label = label.replace(/\s+/g, ' ').trim();
+        txns.push({
+          date: date,
+          label: label || '(no description)',
+          moneyIn: (dep && dep !== 0) ? Math.abs(dep) : null,
+          moneyOut: (wd && wd !== 0) ? Math.abs(wd) : null,
+          balancePrinted: bal
+        });
+      } else if (type === 'T' && idx) {
+        // trailer totals row (numeric Deposit/Withdrawal) — reconciliation target
+        var td = num(get(r, 'deposit')), tw = num(get(r, 'withdrawal'));
+        if (td != null) totalDep = td;
+        if (tw != null) totalWd = tw;
+      }
+    });
+
+    if (!txns.length) return { bank: 'maybank', accounts: [], warnings: ['No transactions found in this Maybank CSV.'] };
+
+    var full;
+    if (accName && acctNo && accName.indexOf(acctNo) !== -1) full = accName;   // name already carries the number
+    else if (acctNo) full = acctNo + (accName && accName !== acctNo ? ' ' + accName : '');
+    else full = accName || 'Account 1';
+    full = full.replace(/\s+/g, ' ').trim();
+    var account = { account: full, currency: currency, openingBalance: null, transactions: txns };
+    var accounts = finalizeAccounts([account], warnings);
+
+    // cross-check the sum of movements against the statement's own trailer totals
+    if (totalDep != null || totalWd != null) {
+      var sumIn = round2(txns.reduce(function (s, t) { return s + (t.moneyIn || 0); }, 0));
+      var sumOut = round2(txns.reduce(function (s, t) { return s + (t.moneyOut || 0); }, 0));
+      if (totalDep != null && Math.abs(sumIn - totalDep) > 0.02)
+        warnings.push('Maybank: summed deposits (' + sumIn.toFixed(2) + ') differ from the statement total (' + totalDep.toFixed(2) + ') — please review.');
+      if (totalWd != null && Math.abs(sumOut - totalWd) > 0.02)
+        warnings.push('Maybank: summed withdrawals (' + sumOut.toFixed(2) + ') differ from the statement total (' + totalWd.toFixed(2) + ') — please review.');
+    }
+
+    return { bank: 'maybank', accounts: accounts, warnings: warnings };
+  }
+
+  var api = { extract: extract, extractCsv: extractCsv, detectBank: detectBank, detectCsvBank: detectCsvBank, buildLines: buildLines, BANKS: BANKS, normDate: normDate };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.BankParser = api;
 })(typeof window !== 'undefined' ? window : this);

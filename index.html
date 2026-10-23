@@ -57,16 +57,38 @@
   @keyframes s{to{transform:rotate(360deg)}}
   #status{color:var(--muted);font-size:13px}
   input[type=file]{display:none}
+
+  /* tabs + Payment Asia tab */
+  .tabs{display:flex;gap:2px;padding:0 26px;background:#111a24;border-bottom:1px solid var(--line)}
+  .tabs button{background:transparent;border:0;border-bottom:2px solid transparent;color:var(--muted);padding:12px 16px;border-radius:0;font-weight:600;cursor:pointer}
+  .tabs button:hover{color:var(--ink)}
+  .tabs button.active{color:var(--ink);border-bottom-color:var(--accent)}
+  .tabpane[hidden]{display:none}
+  .palabel{font-weight:600;margin:2px 0 6px}
+  .palabel.mt{margin-top:16px}
+  .pareq{color:var(--bad);font-weight:400;font-size:12px}
+  .paopt{color:var(--muted);font-weight:400;font-size:12px}
+  .drop.sm{padding:20px;text-align:left;display:flex;align-items:center;gap:12px}
+  .drop.sm .pafn{color:var(--muted)}
+  .drop.filled{border-style:solid;border-color:var(--accent)}
+  .drop.filled .pafn{color:var(--ok)}
+  .pill{display:inline-block;background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:3px 11px;font-size:12px;color:var(--muted);margin:0 8px 10px 0}
+  td.neg{color:var(--bad)}
 </style>
 </head>
 <body>
 <header>
-  <h1>Bank Statement <span>→</span> Odoo Converter</h1>
-  <div class="sub">Drop bank-statement PDFs, get an Odoo-ready Excel export. Everything runs in your browser — no file ever leaves this device.</div>
+  <h1>Finance Tools</h1>
+  <div class="sub">Client-side converters for Odoo / bank-statement imports — nothing ever leaves your browser.</div>
 </header>
-<main>
+<nav class="tabs">
+  <button data-tab="tab-bank" class="active">Bank Statement → Odoo</button>
+  <button data-tab="tab-pa">Payment Asia → Bank Statement</button>
+</nav>
+<main id="tab-bank" class="tabpane">
+  <div class="sub" style="margin-bottom:14px">Drop bank-statement PDFs (or Maybank CSV), get an Odoo-ready Excel export.</div>
   <div class="drop" id="drop">
-    <div>Drag &amp; drop statement PDFs here, or <b>click to choose files</b></div>
+    <div>Drag &amp; drop statement PDFs (or Maybank CSV) here, or <b>click to choose files</b></div>
     <small>Multiple files at once are fine.</small>
     <div class="banks">
       <span class="chip">HSBC Business Direct</span>
@@ -76,8 +98,9 @@
       <span class="chip">Payoneer</span>
       <span class="chip">Wise</span>
       <span class="chip">American Express</span>
+      <span class="chip">Maybank (CSV)</span>
     </div>
-    <input type="file" id="file" accept="application/pdf,.pdf" multiple>
+    <input type="file" id="file" accept="application/pdf,.pdf,text/csv,.csv" multiple>
   </div>
 
   <div class="bar">
@@ -95,9 +118,54 @@
   <div id="results"></div>
 
   <div class="privacy">
-    🔒 100% client-side. PDFs are parsed locally with pdf.js and exported with SheetJS in your browser.<br>
+    🔒 100% client-side. PDFs (and Maybank CSVs) are parsed locally and exported with SheetJS in your browser.<br>
     Nothing is uploaded to any server. Safe for confidential statements.<br>
     Every row's running balance is re-computed and checked against the bank's printed balance — mismatches are flagged for review.
+  </div>
+</main>
+
+
+<main id="tab-pa" class="tabpane" hidden>
+  <div class="sub" style="margin-bottom:14px">Turn the two Payment Asia raw files into an import-ready bank statement. 100% client-side.</div>
+
+  <div class="card"><div class="acc" style="padding:16px">
+    <div class="palabel">1 · Transactions export <span class="pareq">(required)</span></div>
+    <div class="drop sm" id="paTx"><span class="pafn">Drop or click — the “DEPOSIT” .xlsx export (Status / Transaction ID / Completed Time / Net Amount)</span><input type="file" accept=".xlsx"></div>
+    <div class="palabel mt">2 · Settlement record(s) <span class="paopt">(optional · multiple allowed)</span></div>
+    <div class="drop sm" id="paPdf"><span class="pafn">Drop or click — the “Payment Asia Services … Settlement Record” .pdf</span><input type="file" accept=".pdf" multiple></div>
+  </div></div>
+
+  <div class="card"><div class="acc" style="padding:16px">
+    <div class="palabel">3 · Output</div>
+    <div class="opt" style="margin:4px 0 12px">
+      <label><input type="radio" name="pafmt" value="xlsx" checked> Fill Odoo template (.xlsx)</label>
+      <label><input type="radio" name="pafmt" value="csv"> Plain CSV</label>
+    </div>
+    <div id="paTmplBox">
+      <div class="palabel">Odoo template <span class="pareq">(required for .xlsx)</span></div>
+      <div class="drop sm" id="paTmpl"><span class="pafn">Drop or click — the blank “Bank Statement Lines” import workbook</span><input type="file" accept=".xlsx"></div>
+    </div>
+    <div id="paCsvBox" class="opt" hidden>
+      <label>Date format
+        <select id="paDateFmt"><option value="dmy">DD/MM/YYYY</option><option value="iso">YYYY-MM-DD</option><option value="mdy">MM/DD/YYYY</option></select>
+      </label>
+      <label><input type="checkbox" id="paDropC"> Omit blank Column C</label>
+    </div>
+  </div></div>
+
+  <div class="bar">
+    <div class="grow"></div>
+    <span id="paStatus"></span>
+    <button class="ghost" id="paReset">Reset</button>
+    <button id="paGo" disabled>Generate</button>
+    <button id="paDl" disabled>Download</button>
+  </div>
+
+  <div id="paPreview"></div>
+
+  <div class="privacy">
+    🔒 100% client-side. The .xlsx and .pdf are parsed locally with the browser’s built-in zip/deflate engine — nothing is uploaded.<br>
+    Logic: filter Status=Success · Net Amount→Amount · Transaction ID→Label · Completed Time→Date · settlement Net×−1 aggregated per date as “Cash Transfer to Bank” · sorted oldest→newest.
   </div>
 </main>
 
@@ -126,17 +194,24 @@ el('export').addEventListener('click', doExport);
 function setStatus(html){ el('status').innerHTML = html; }
 
 async function handleFiles(list){
-  var files = Array.prototype.slice.call(list).filter(function(f){ return /\.pdf$/i.test(f.name); });
+  var files = Array.prototype.slice.call(list).filter(function(f){ return /\.(pdf|csv)$/i.test(f.name); });
   if(!files.length) return;
   for (var i=0;i<files.length;i++){
     var f = files[i];
+    var isCsv = /\.csv$/i.test(f.name);
     setStatus('<span class="spin"></span> Reading ' + escapeHtml(f.name) + ' …');
     try {
-      var items = await extractItems(f);
-      var res = BankParser.extract(items);
+      var res;
+      if (isCsv){
+        var text = await f.text();
+        res = BankParser.extractCsv(text);
+      } else {
+        var items = await extractItems(f);
+        res = BankParser.extract(items);
+      }
       parsed.push({ file:f.name, bank:res.bank, accounts:res.accounts, warnings:res.warnings });
     } catch(err){
-      parsed.push({ file:f.name, bank:'error', accounts:[], warnings:['Could not read this PDF: ' + err.message] });
+      parsed.push({ file:f.name, bank:'error', accounts:[], warnings:['Could not read this ' + (isCsv?'CSV':'PDF') + ': ' + err.message] });
     }
     render();
   }
@@ -237,7 +312,7 @@ function safeName(s, used){
   used[n]=1; return n;
 }
 function tagFor(file){
-  return file.replace(/\.pdf$/i,'').replace(/[^A-Za-z0-9]+/g,' ').trim().slice(0,14);
+  return file.replace(/\.(pdf|csv)$/i,'').replace(/[^A-Za-z0-9]+/g,' ').trim().slice(0,14);
 }
 
 function doExport(){
@@ -262,7 +337,7 @@ function doExport(){
       var wb=XLSX.utils.book_new(); var used={};
       st.accounts.forEach(function(a){ XLSX.utils.book_append_sheet(wb, accountSheet(a), safeName(a.account, used)); });
       var data=XLSX.write(wb,{bookType:'xlsx',type:'array',cellDates:true});
-      var fn=(st.file.replace(/\.pdf$/i,'')||'statement')+' (Odoo).xlsx';
+      var fn=(st.file.replace(/\.(pdf|csv)$/i,'')||'statement')+' (Odoo).xlsx';
       var base=fn,i=2; while(usedFiles[fn]){ fn=base.replace(/\.xlsx$/,'')+' '+(i++)+'.xlsx'; } usedFiles[fn]=1;
       zip.file(fn, data);
     });
@@ -275,5 +350,275 @@ function doExport(){
   }
 }
 </script>
+
+<!-- Payment Asia → Bank Statement (self-contained, no external libs) -->
+<script>
+(function(){
+"use strict";
+/* ===== core logic (mirrors pa_core.js, validated to byte-match the template) ===== */
+const CASH_SWEEP_LABEL = "Cash Transfer to Bank";
+const EXCEL_EPOCH = Date.UTC(1899,11,30);
+const FALLBACK = { date:22, text:7, amount:24 };
+const td = new TextDecoder();
+
+async function _inflate(bytes, fmt){
+  const ds = new DecompressionStream(fmt);
+  const r = new Response(new Blob([bytes]).stream().pipeThrough(ds));
+  return new Uint8Array(await r.arrayBuffer());
+}
+const inflateRaw = b=>_inflate(b,"deflate-raw");
+const inflateZlib = b=>_inflate(b,"deflate");
+async function _deflateRaw(bytes){
+  const cs = new CompressionStream("deflate-raw");
+  const r = new Response(new Blob([bytes]).stream().pipeThrough(cs));
+  return new Uint8Array(await r.arrayBuffer());
+}
+const _u16=(b,o)=>b[o]|(b[o+1]<<8);
+const _u32=(b,o)=>(b[o]|(b[o+1]<<8)|(b[o+2]<<16)|(b[o+3]<<24))>>>0;
+
+async function unzip(ab){
+  const b=new Uint8Array(ab);
+  let eocd=-1;
+  for(let i=b.length-22;i>=0;i--){ if(_u32(b,i)===0x06054b50){eocd=i;break;} }
+  if(eocd<0) throw new Error("Not a valid .xlsx file.");
+  const count=_u16(b,eocd+10);
+  let p=_u32(b,eocd+16);
+  const out=new Map(); const dec=new TextDecoder();
+  for(let n=0;n<count;n++){
+    if(_u32(b,p)!==0x02014b50) break;
+    const method=_u16(b,p+10), compSize=_u32(b,p+20);
+    const nameLen=_u16(b,p+28), extraLen=_u16(b,p+30), commentLen=_u16(b,p+32);
+    const localOff=_u32(b,p+42);
+    const name=dec.decode(b.subarray(p+46,p+46+nameLen));
+    const lNameLen=_u16(b,localOff+26), lExtraLen=_u16(b,localOff+28);
+    const dataStart=localOff+30+lNameLen+lExtraLen;
+    const comp=b.subarray(dataStart,dataStart+compSize);
+    out.set(name, method===0?comp.slice():await inflateRaw(comp));
+    p+=46+nameLen+extraLen+commentLen;
+  }
+  return out;
+}
+const _CRC=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xedb88320^(c>>>1):c>>>1;t[n]=c>>>0;}return t;})();
+function crc32(b){let c=0xffffffff;for(let i=0;i<b.length;i++)c=_CRC[(c^b[i])&0xff]^(c>>>8);return (c^0xffffffff)>>>0;}
+async function zipFiles(entries){
+  const enc=new TextEncoder(); const chunks=[]; let offset=0;
+  const push=a=>{chunks.push(a);offset+=a.length;};
+  const prep=[];
+  for(const e of entries){
+    const nameBytes=enc.encode(e.name); const crc=crc32(e.data);
+    const def=await _deflateRaw(e.data); const store=def.length>=e.data.length;
+    prep.push({nameBytes,crc,method:store?0:8,comp:store?e.data:def,uSize:e.data.length});
+  }
+  for(const p of prep){
+    const lh=new Uint8Array(30+p.nameBytes.length); const dv=new DataView(lh.buffer);
+    dv.setUint32(0,0x04034b50,true);dv.setUint16(4,20,true);dv.setUint16(6,0,true);
+    dv.setUint16(8,p.method,true);dv.setUint16(10,0,true);dv.setUint16(12,0x21,true);
+    dv.setUint32(14,p.crc,true);dv.setUint32(18,p.comp.length,true);dv.setUint32(22,p.uSize,true);
+    dv.setUint16(26,p.nameBytes.length,true);dv.setUint16(28,0,true);
+    lh.set(p.nameBytes,30); p.localOffset=offset; push(lh); push(p.comp);
+  }
+  const cdStart=offset;
+  for(const p of prep){
+    const ch=new Uint8Array(46+p.nameBytes.length); const dv=new DataView(ch.buffer);
+    dv.setUint32(0,0x02014b50,true);dv.setUint16(4,20,true);dv.setUint16(6,20,true);
+    dv.setUint16(8,0,true);dv.setUint16(10,p.method,true);dv.setUint16(12,0,true);dv.setUint16(14,0x21,true);
+    dv.setUint32(16,p.crc,true);dv.setUint32(20,p.comp.length,true);dv.setUint32(24,p.uSize,true);
+    dv.setUint16(28,p.nameBytes.length,true);dv.setUint32(42,p.localOffset,true);
+    ch.set(p.nameBytes,46); push(ch);
+  }
+  const cdSize=offset-cdStart;
+  const eo=new Uint8Array(22); const dv=new DataView(eo.buffer);
+  dv.setUint32(0,0x06054b50,true);dv.setUint16(8,prep.length,true);dv.setUint16(10,prep.length,true);
+  dv.setUint32(12,cdSize,true);dv.setUint32(16,cdStart,true); push(eo);
+  const total=chunks.reduce((a,c)=>a+c.length,0); const res=new Uint8Array(total); let o=0;
+  for(const c of chunks){res.set(c,o);o+=c.length;} return res;
+}
+function colToIndex(ref){const L=ref.match(/^[A-Z]+/)[0];let n=0;for(const ch of L)n=n*26+(ch.charCodeAt(0)-64);return n;}
+const xmlUnescape=s=>s.replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,"&");
+const xmlEscape=s=>s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&apos;");
+function parseSharedStrings(xml){const out=[];const si=/<si>([\s\S]*?)<\/si>/g;let m;while((m=si.exec(xml))){let t="";const tr=/<t[^>]*>([\s\S]*?)<\/t>/g;let tm;while((tm=tr.exec(m[1])))t+=xmlUnescape(tm[1]);out.push(t);}return out;}
+function parseWorksheet(xml,shared){
+  const rows=[]; const rr=/<row\b[^>]*>([\s\S]*?)<\/row>/g; let rm;
+  while((rm=rr.exec(xml))){
+    const cells=new Map(); const cr=/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g; let cm;
+    while((cm=cr.exec(rm[1]))){
+      const a=cm[1],inner=cm[2]||""; const rf=a.match(/r="([A-Z]+\d+)"/); if(!rf)continue;
+      const idx=colToIndex(rf[1]); const tM=a.match(/t="([^"]+)"/); const t=tM?tM[1]:""; let v="";
+      if(t==="inlineStr"){let x="";const tr=/<t[^>]*>([\s\S]*?)<\/t>/g;let tm;while((tm=tr.exec(inner)))x+=xmlUnescape(tm[1]);v=x;}
+      else{const vM=inner.match(/<v[^>]*>([\s\S]*?)<\/v>/);v=vM?vM[1]:"";if(t==="s"&&v!=="")v=shared[parseInt(v,10)];}
+      cells.set(idx,{v,t});
+    }
+    rows.push(cells);
+  }
+  return rows;
+}
+function parseDateToUTC(raw){
+  if(!raw)return null; const tok=String(raw).trim().split(/\s+/)[0];
+  const m=tok.match(/^(\d{4})-(\d{2})-(\d{2})$/)||tok.match(/^(\d{2})\/(\d{2})\/(\d{4})$/); if(!m)return null;
+  let y,mo,d; if(tok.includes("-")){y=+m[1];mo=+m[2];d=+m[3];}else{d=+m[1];mo=+m[2];y=+m[3];}
+  return Date.UTC(y,mo-1,d);
+}
+const excelSerial=ms=>Math.round((ms-EXCEL_EPOCH)/86400000);
+function fmtDate(ms,mode){const dt=new Date(ms);const y=dt.getUTCFullYear();const mo=String(dt.getUTCMonth()+1).padStart(2,"0");const d=String(dt.getUTCDate()).padStart(2,"0");if(mode==="iso")return `${y}-${mo}-${d}`;if(mode==="mdy")return `${mo}/${d}/${y}`;return `${d}/${mo}/${y}`;}
+function num(raw){if(raw==null)return null;const s=String(raw).replace(/,/g,"").replace(/\s/g,"").trim();if(s===""||s==="-")return null;const n=Number(s);return Number.isNaN(n)?null:n;}
+
+async function transactionsToEntries(ab){
+  const map=await unzip(ab); const get=n=>map.has(n)?td.decode(map.get(n)):"";
+  const shared=map.has("xl/sharedStrings.xml")?parseSharedStrings(get("xl/sharedStrings.xml")):[];
+  const sheet=[...map.keys()].filter(k=>/^xl\/worksheets\/sheet\d+\.xml$/.test(k)).sort()[0];
+  const rows=parseWorksheet(get(sheet),shared); const entries=[]; let kept=0,skipped=0;
+  for(let i=1;i<rows.length;i++){
+    const r=rows[i]; const cv=idx=>r.get(idx)?r.get(idx).v:"";
+    const status=(cv(5)||"").trim(); if(status.toLowerCase()!=="success"){if(status)skipped++;continue;}
+    const date=parseDateToUTC(cv(8)); const amount=num(cv(13)); const label=(cv(2)||"").trim();
+    if(date===null||amount===null){skipped++;continue;}
+    entries.push({date,label,amount}); kept++;
+  }
+  return {entries,kept,skipped};
+}
+const PDF_ROW=/(\d{4}-\d{2}-\d{2})\s+\S+\s+[A-Z]{3}\s+([\d,]+\.\d{2})\s+(-?[\d,]+\.\d{2})\s+(-?[\d,]+\.\d{2})/g;
+async function pdfText(ab){
+  const bytes=new Uint8Array(ab); let s=""; const CH=0x8000;
+  for(let i=0;i<bytes.length;i+=CH)s+=String.fromCharCode.apply(null,bytes.subarray(i,i+CH));
+  const re=/stream\r?\n([\s\S]*?)\r?\nendstream/g; let m; const texts=[];
+  while((m=re.exec(s))){
+    const chunk=m[1]; const comp=new Uint8Array(chunk.length);
+    for(let i=0;i<chunk.length;i++)comp[i]=chunk.charCodeAt(i)&0xff;
+    let inf; try{inf=await inflateZlib(comp);}catch{continue;}
+    const t=td.decode(inf); const pr=/\(((?:[^()\\]|\\.)*)\)/g; let pm;
+    while((pm=pr.exec(t)))texts.push(pm[1]);
+  }
+  return texts.join(" ");
+}
+async function servicesToEntries(ab){
+  const text=await pdfText(ab); const byDate=new Map(); const order=[]; let raw=0; let m; PDF_ROW.lastIndex=0;
+  while((m=PDF_ROW.exec(text))){
+    const date=parseDateToUTC(m[1]); const net=num(m[4]); if(date===null||net===null)continue; raw++;
+    if(!byDate.has(date)){byDate.set(date,0);order.push(date);} byDate.set(date,byDate.get(date)+net);
+  }
+  const entries=order.map(date=>({date,label:CASH_SWEEP_LABEL,amount:Math.round(-byDate.get(date)*100)/100}));
+  return {entries,raw,lines:entries.length};
+}
+function combine(tx,sw){return [...tx,...sw].map((e,i)=>[e,i]).sort((a,b)=>a[0].date-b[0].date||a[1]-b[1]).map(x=>x[0]);}
+function toCsv(entries,{dateFormat="dmy",dropColC=false}={}){
+  const esc=v=>{const s=String(v);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
+  const header=dropColC?["Date","Label","Amount"]:["Date","Label","","Amount"];
+  const lines=[header.map(esc).join(",")];
+  for(const e of entries){const d=fmtDate(e.date,dateFormat);const a=e.amount.toFixed(2);lines.push((dropColC?[d,e.label,a]:[d,e.label,"",a]).map(esc).join(","));}
+  return "﻿"+lines.join("\r\n")+"\r\n";
+}
+async function fillTemplate(ab,entries){
+  const map=await unzip(ab); const get=n=>map.has(n)?td.decode(map.get(n)):"";
+  const wb=get("xl/workbook.xml"); const rels=get("xl/_rels/workbook.xml.rels");
+  const rid2={}; let rm; const rr=/Id="([^"]+)"[^>]*Target="([^"]+)"/g; while((rm=rr.exec(rels)))rid2[rm[1]]=rm[2];
+  const sr=/<sheet [^>]*name="([^"]+)"[^>]*r:id="([^"]+)"/g; let sm,target=null,first=null;
+  while((sm=sr.exec(wb))){const part="xl/"+rid2[sm[2]];if(first===null)first=part;if(sm[1].trim().toLowerCase()==="bank statement lines")target=part;}
+  target=target||first;
+  let xml=get(target);
+  const shared=map.has("xl/sharedStrings.xml")?parseSharedStrings(get("xl/sharedStrings.xml")):[];
+  const existing=parseWorksheet(xml,shared);
+  let sDate=FALLBACK.date,sText=FALLBACK.text,sAmount=FALLBACK.amount;
+  const styleOf=ref=>{const m=xml.match(new RegExp(`<c r="${ref}"[^>]*\\bs="(\\d+)"`));return m?+m[1]:null;};
+  if(existing.length>1){sDate=styleOf("A2")??sDate;sText=styleOf("B2")??sText;sAmount=styleOf("D2")??sAmount;}
+  const hdr=xml.match(/<row r="1"[\s\S]*?<\/row>/);
+  const header=hdr?hdr[0]:'<row r="1"><c r="A1" t="inlineStr"><is><t>Date</t></is></c><c r="B1" t="inlineStr"><is><t>Label</t></is></c><c r="C1" t="inlineStr"><is><t>Partner</t></is></c><c r="D1" t="inlineStr"><is><t>Amount</t></is></c></row>';
+  const out=[header];
+  entries.forEach((e,i)=>{const r=i+2;const serial=excelSerial(e.date);
+    out.push(`<row r="${r}" spans="1:4"><c r="A${r}" s="${sDate}"><v>${serial}</v></c><c r="B${r}" s="${sText}" t="inlineStr"><is><t>${xmlEscape(e.label)}</t></is></c><c r="C${r}" s="${sText}"/><c r="D${r}" s="${sAmount}"><v>${e.amount.toFixed(2)}</v></c></row>`);});
+  xml=xml.replace(/<sheetData>[\s\S]*?<\/sheetData>/,"<sheetData>"+out.join("")+"</sheetData>");
+  xml=xml.replace(/<dimension ref="[^"]*"\/>/,`<dimension ref="A1:D${entries.length+1}"/>`);
+  const enc=new TextEncoder(); const eo=[];
+  for(const [name,data] of map)eo.push({name,data:name===target?enc.encode(xml):data});
+  return zipFiles(eo);
+}
+
+  // ---- Payment Asia tab UI ----
+  const $=id=>document.getElementById(id);
+  const files={tx:null,pdf:[],tmpl:null};
+  let output=null,outName="",outMime="";
+  function pstatus(h,c){const e=$("paStatus");e.innerHTML=c?'<span style="color:var(--'+c+')">'+h+'</span>':h;}
+  function bytes(n){return n<1024?n+" B":n<1048576?(n/1024).toFixed(0)+" KB":(n/1048576).toFixed(1)+" MB";}
+  function fmtv(v){return v==null?'':Number(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
+  function curFmt(){return document.querySelector('input[name=pafmt]:checked').value;}
+  function refresh(){const f=curFmt();$("paGo").disabled=!(files.tx&&(f==='csv'||files.tmpl));$("paDl").disabled=!output;}
+  function setup(id,kind,multiple){
+    const el=$(id),input=el.querySelector('input[type=file]'),fn=el.querySelector('.pafn');
+    el.addEventListener('click',e=>{if(e.target!==input)input.click();});
+    input.addEventListener('change',()=>take(kind,[].slice.call(input.files),el,fn));
+    ['dragenter','dragover'].forEach(ev=>el.addEventListener(ev,e=>{e.preventDefault();el.classList.add('drag');}));
+    ['dragleave','drop'].forEach(ev=>el.addEventListener(ev,e=>{e.preventDefault();el.classList.remove('drag');}));
+    el.addEventListener('drop',e=>take(kind,[].slice.call(e.dataTransfer.files),el,fn));
+  }
+  function take(kind,list,el,fn){
+    if(!list.length)return;
+    if(kind==='pdf'){files.pdf=files.pdf.concat(list);fn.textContent=files.pdf.map(f=>f.name).join(', ');}
+    else{files[kind]=list[0];fn.textContent=list[0].name+' · '+bytes(list[0].size);}
+    el.classList.add('filled');output=null;refresh();
+  }
+  document.querySelectorAll('input[name=pafmt]').forEach(r=>r.addEventListener('change',()=>{
+    const csv=curFmt()==='csv';$("paCsvBox").hidden=!csv;$("paTmplBox").hidden=csv;output=null;refresh();
+  }));
+  $("paGo").addEventListener('click',async()=>{
+    try{
+      $("paGo").disabled=true;output=null;$("paDl").disabled=true;pstatus('<span class="spin"></span> Working…');
+      const f=curFmt();
+      const t=await transactionsToEntries(await files.tx.arrayBuffer());
+      let sweeps=[],sRaw=0;
+      for(const pf of files.pdf){const s=await servicesToEntries(await pf.arrayBuffer());sweeps=sweeps.concat(s.entries);sRaw+=s.raw;}
+      const entries=combine(t.entries,sweeps);
+      if(!entries.length)throw new Error("No rows produced — check the files.");
+      const d0=new Date(entries[0].date),ym=d0.getUTCFullYear()+"-"+String(d0.getUTCMonth()+1).padStart(2,"0");
+      if(f==='xlsx'){
+        if(!files.tmpl)throw new Error("Please add the Odoo template, or switch to CSV.");
+        output=await fillTemplate(await files.tmpl.arrayBuffer(),entries);
+        outName="Bank Statement Lines - "+ym+".xlsx";
+        outMime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+      }else{
+        const csv=toCsv(entries,{dateFormat:$("paDateFmt").value,dropColC:$("paDropC").checked});
+        output=new TextEncoder().encode(csv);outName="Bank Statement - "+ym+".csv";outMime="text/csv";
+      }
+      preview(entries,t,sweeps.length,sRaw);
+      pstatus(entries.length+" rows ready ✓","ok");$("paDl").disabled=false;
+    }catch(err){console.error(err);pstatus("Error: "+err.message,"bad");}
+    finally{refresh();}
+  });
+  $("paDl").addEventListener('click',()=>{
+    if(!output)return;const b=new Blob([output],{type:outMime});const u=URL.createObjectURL(b);
+    const a=document.createElement('a');a.href=u;a.download=outName;document.body.appendChild(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(u),2000);
+  });
+  $("paReset").addEventListener('click',()=>{
+    files.tx=null;files.pdf=[];files.tmpl=null;output=null;
+    document.querySelectorAll('#tab-pa .drop').forEach(d=>d.classList.remove('filled'));
+    $("paTx").querySelector('.pafn').textContent='Drop or click — the “DEPOSIT” .xlsx export (Status / Transaction ID / Completed Time / Net Amount)';
+    $("paPdf").querySelector('.pafn').textContent='Drop or click — the “Payment Asia Services … Settlement Record” .pdf';
+    $("paTmpl").querySelector('.pafn').textContent='Drop or click — the blank “Bank Statement Lines” import workbook';
+    $("paPreview").innerHTML='';pstatus('');refresh();
+  });
+  function preview(entries,t,sweepLines,sRaw){
+    const total=entries.reduce((a,e)=>a+e.amount,0);
+    let h='<div class="card"><div class="chd"><span class="name">Preview</span></div><div class="acc" style="padding:12px 16px">';
+    h+='<div><span class="pill">'+entries.length+' rows</span><span class="pill">'+t.kept+' transactions ('+t.skipped+' skipped)</span><span class="pill">'+sweepLines+' sweeps (from '+sRaw+')</span><span class="pill">Net '+fmtv(total)+'</span></div>';
+    h+='<div class="tblwrap"><table><thead><tr><th>Date</th><th>Label</th><th class="n">Amount</th></tr></thead><tbody>';
+    for(const e of entries){const neg=e.amount<0;h+='<tr><td>'+fmtDate(e.date,"dmy")+'</td><td>'+String(e.label).replace(/</g,"&lt;")+'</td><td class="n'+(neg?' neg':'')+'">'+fmtv(e.amount)+'</td></tr>';}
+    h+='</tbody></table></div></div></div>';
+    $("paPreview").innerHTML=h;
+  }
+  setup("paTx","tx",false);setup("paPdf","pdf",true);setup("paTmpl","tmpl",false);
+  if(typeof DecompressionStream==="undefined")pstatus("Your browser is too old (needs DecompressionStream). Use a recent Chrome / Edge / Safari / Firefox.","bad");
+  refresh();
+
+})();
+</script>
+<script>
+// tab switching
+document.querySelectorAll('.tabs button').forEach(function(b){
+  b.addEventListener('click',function(){
+    document.querySelectorAll('.tabs button').forEach(function(x){ x.classList.toggle('active', x===b); });
+    document.querySelectorAll('.tabpane').forEach(function(p){ p.hidden = (p.id!==b.dataset.tab); });
+  });
+});
+</script>
+
 </body>
 </html>
